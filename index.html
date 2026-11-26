@@ -77,15 +77,7 @@ button { -webkit-user-select: none; user-select: none; touch-action: manipulatio
 h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.01em; }
 .today { font-size: 0.85rem; color: var(--muted); }
 .sync { font-size: 0.8rem; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
-.sync::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--line); flex: none; }
-.sync[data-tone="ok"]::before { background: var(--ok); }
-.sync[data-tone="warn"]::before { background: var(--warn); }
-
-/* Login and account */
-.auth-form { display: grid; gap: 10px; }
-.account { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-.account .who { min-width: 0; overflow-wrap: anywhere; }
-.card > .linkbtn { justify-self: start; }
+.sync::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
 
 /* The bill */
 .bill { background: var(--hero); color: var(--hero-ink); border-radius: 20px; padding: 20px; display: grid; gap: 6px; }
@@ -200,29 +192,8 @@ input[aria-invalid="true"] { border-color: var(--danger); }
       <h1>Rengøring</h1>
       <span id="today" class="today"></span>
     </div>
-    <span id="sync" class="sync">Gemt på telefonen</span>
+    <span class="sync">Gemmes automatisk</span>
   </header>
-
-  <section id="auth-card" class="card" aria-labelledby="auth-h" hidden>
-    <h2 id="auth-h">Gem dine timer online</h2>
-    <p class="hint">Log ind, så dine timer gemmes online og kan ses på alle dine enheder. Første gang trykker du på Opret konto. Timer, der allerede ligger på telefonen, kommer med.</p>
-    <form id="auth-form" class="auth-form" novalidate>
-      <div class="field">
-        <label for="a-email">E-mail</label>
-        <input id="a-email" type="email" inputmode="email" autocomplete="username" autocapitalize="off" spellcheck="false">
-      </div>
-      <div class="field">
-        <label for="a-pass">Adgangskode (mindst 6 tegn)</label>
-        <input id="a-pass" type="password" autocomplete="current-password">
-      </div>
-    </form>
-    <p id="a-error" class="error" role="alert" hidden></p>
-    <div class="actions">
-      <button type="submit" form="auth-form" id="a-login" class="btn primary">Log ind</button>
-      <button type="button" id="a-signup" class="btn ghost">Opret konto</button>
-    </div>
-    <button type="button" id="a-reset" class="linkbtn">Glemt adgangskode?</button>
-  </section>
 
   <section class="bill" aria-labelledby="bill-h">
     <p class="eyebrow" id="bill-h">Til betaling</p>
@@ -291,7 +262,7 @@ input[aria-invalid="true"] { border-color: var(--danger); }
   <section class="log" aria-labelledby="backup-h">
     <h2 id="backup-h">Sikkerhedskopi</h2>
     <div class="card">
-      <p class="hint" id="backup-hint">Timerne gemmes på denne telefon. Kopiér en sikkerhedskopi en gang imellem og gem den fx i Noter, så du kan hente timerne igen, hvis du får ny telefon.</p>
+      <p class="hint">Timerne gemmes automatisk på denne telefon, hver gang du tilføjer eller retter noget. Vil du have en ekstra kopi, fx før du skifter telefon, kan du kopiere den her og gemme den i Noter.</p>
       <div class="actions">
         <button type="button" id="export-btn" class="btn ghost">Kopiér sikkerhedskopi</button>
         <button type="button" id="import-toggle" class="btn ghost" aria-expanded="false" aria-controls="import-box">Indlæs</button>
@@ -304,688 +275,516 @@ input[aria-invalid="true"] { border-color: var(--danger); }
       </div>
     </div>
   </section>
-
-  <section class="log" id="account-section" aria-labelledby="account-h" hidden>
-    <h2 id="account-h">Konto</h2>
-    <div class="card account">
-      <p class="who">Logget ind som <strong id="account-email"></strong></p>
-      <button type="button" id="logout-btn" class="btn ghost">Log ud</button>
-    </div>
-  </section>
 </main>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-<script type="module">
-var KEY = "rengoringstimer.v1";
-var DAYS = ["søn", "man", "tir", "ons", "tor", "fre", "lør"];
-var DEFAULTS = { rate: 100, extra: 1 };
-var NF = new Intl.NumberFormat("da-DK", { maximumFractionDigits: 2 });
-var fmt = function (n) { return NF.format(Math.round(n * 100) / 100); };
-var plain = function (n) { return String(n).replace(".", ","); };
-var $ = function (id) { return document.getElementById(id); };
+<script>
+(function () {
+  "use strict";
 
-// owner: null = hours only on this phone; a user id = a copy of that account's online hours
-var state = { settings: { rate: DEFAULTS.rate, extra: DEFAULTS.extra }, visits: {}, owner: null };
-var cloud = null;
-var editingId = null;
-var openBatches = new Set();
-var payArmed = false, payTimer = null;
-var undoArmed = null, undoTimer = null;
-var delArmed = false, delTimer = null;
+  var KEY = "rengoringstimer.v1";
+  var DAYS = ["søn", "man", "tir", "ons", "tor", "fre", "lør"];
+  var DEFAULTS = { rate: 100, extra: 1 };
+  var NF = new Intl.NumberFormat("da-DK", { maximumFractionDigits: 2 });
+  var fmt = function (n) { return NF.format(Math.round(n * 100) / 100); };
+  var plain = function (n) { return String(n).replace(".", ","); };
+  var $ = function (id) { return document.getElementById(id); };
 
-/* ---------- helpers ---------- */
-function el(tag, cls, text) {
-  var e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text != null) e.textContent = text;
-  return e;
-}
-function pad(n) { return String(n).padStart(2, "0"); }
-function todayISO() { var d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
-function nowHM() {
-  var d = new Date();
-  var m = Math.round((d.getHours() * 60 + d.getMinutes()) / 5) * 5;
-  if (m >= 1440) m = 1435;
-  return pad(Math.floor(m / 60)) + ":" + pad(m % 60);
-}
-function isTime(t) { return typeof t === "string" && /^\d{2}:\d{2}$/.test(t); }
-function isDate(d) { return typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d); }
-function toMin(t) { if (!isTime(t)) return null; var p = t.split(":"); return Number(p[0]) * 60 + Number(p[1]); }
-function parseNum(s) {
-  var str = String(s == null ? "" : s).trim().replace(/\s/g, "").replace(",", ".");
-  if (str === "") return NaN;
-  var n = Number(str);
-  return Number.isFinite(n) ? n : NaN;
-}
-function validNum(v, fallback) { var n = Number(v); return v !== null && v !== "" && Number.isFinite(n) && n >= 0 ? n : fallback; }
+  var state = { settings: { rate: DEFAULTS.rate, extra: DEFAULTS.extra }, visits: {} };
+  var editingId = null;
+  var openBatches = new Set();
+  var payArmed = false, payTimer = null;
+  var undoArmed = null, undoTimer = null;
+  var delArmed = false, delTimer = null;
 
-function worked(v) {
-  var s = toMin(v.start), e = toMin(v.end);
-  if (s == null || e == null || e <= s) return null;
-  return (e - s) / 60;
-}
-function extraOf(v) { return validNum(v.extra, 0); }
-function billed(v) { var w = worked(v); return w == null ? null : w + extraOf(v); }
-function rateOf(v) { return v.paid ? validNum(v.paidRate, state.settings.rate) : state.settings.rate; }
-function amountOf(v) { var b = billed(v); return b == null ? null : b * rateOf(v); }
-function dateParts(iso) {
-  var p = iso.split("-").map(Number);
-  var dt = new Date(p[0], p[1] - 1, p[2]);
-  return { y: p[0], m: p[1], d: p[2], wd: DAYS[dt.getDay()] };
-}
-function shortDate(iso) {
-  var p = dateParts(iso);
-  return p.d + "/" + p.m + (p.y !== new Date().getFullYear() ? " " + p.y : "");
-}
-function byNewest(a, b) { return (b.date + (b.start || "")).localeCompare(a.date + (a.start || "")); }
-function gange(n) { return n === 1 ? "1 gang" : n + " gange"; }
-function calcText(v) {
-  var w = worked(v);
-  if (w == null) return "";
-  var x = extraOf(v);
-  return x ? fmt(w) + " t + " + fmt(x) + " = " + fmt(w + x) + " t" : fmt(w) + " t";
-}
-var toastTimer = null;
-function toast(msg) {
-  var t = $("toast");
-  t.textContent = msg;
-  t.hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(function () { t.hidden = true; }, 3000);
-}
-function setStatus(text, tone) {
-  var s = $("sync");
-  s.textContent = text;
-  if (tone) s.setAttribute("data-tone", tone); else s.removeAttribute("data-tone");
-}
+  /* ---------- helpers ---------- */
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function pad(n) { return String(n).padStart(2, "0"); }
+  function todayISO() { var d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+  function nowHM() {
+    var d = new Date();
+    var m = Math.round((d.getHours() * 60 + d.getMinutes()) / 5) * 5;
+    if (m >= 1440) m = 1435;
+    return pad(Math.floor(m / 60)) + ":" + pad(m % 60);
+  }
+  function isTime(t) { return typeof t === "string" && /^\d{2}:\d{2}$/.test(t); }
+  function isDate(d) { return typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d); }
+  function toMin(t) { if (!isTime(t)) return null; var p = t.split(":"); return Number(p[0]) * 60 + Number(p[1]); }
+  function parseNum(s) {
+    var str = String(s == null ? "" : s).trim().replace(/\s/g, "").replace(",", ".");
+    if (str === "") return NaN;
+    var n = Number(str);
+    return Number.isFinite(n) ? n : NaN;
+  }
+  function validNum(v, fallback) { var n = Number(v); return v !== null && v !== "" && Number.isFinite(n) && n >= 0 ? n : fallback; }
 
-/* ---------- data on this phone ---------- */
-function cleanVisit(v) {
-  if (!v || typeof v !== "object" || !isDate(v.date) || !isTime(v.start)) return null;
-  var paid = v.paid === true;
-  return {
-    date: v.date,
-    start: v.start,
-    end: isTime(v.end) ? v.end : "",
-    extra: validNum(v.extra, 0),
-    paid: paid,
-    paidAt: paid && isDate(v.paidAt) ? v.paidAt : null,
-    paidRate: paid ? validNum(v.paidRate, null) : null,
-    batch: paid && typeof v.batch === "string" ? v.batch.slice(0, 64) : null,
-    createdAt: typeof v.createdAt === "string" ? v.createdAt.slice(0, 40) : new Date().toISOString()
-  };
-}
-function cleanSettings(s) {
-  if (!s || typeof s !== "object") return null;
-  return { rate: validNum(s.rate, DEFAULTS.rate), extra: validNum(s.extra, DEFAULTS.extra) };
-}
-function readBackup(obj) {
-  var out = { settings: null, visits: {} };
-  if (!obj || typeof obj !== "object") return out;
-  out.settings = cleanSettings(obj.settings);
-  var list = obj.visits;
-  if (Array.isArray(list)) {
-    list.forEach(function (v, i) { var c = cleanVisit(v); if (c) out.visits[typeof v.id === "string" ? v.id.replace(/[^\w-]/g, "").slice(0, 64) || "i" + i : "i" + i + c.date] = c; });
-  } else if (list && typeof list === "object") {
-    Object.keys(list).forEach(function (id) {
-      var c = cleanVisit(list[id]);
-      var safe = id.replace(/[^\w-]/g, "").slice(0, 64);
-      if (c && safe) out.visits[safe] = c;
+  function worked(v) {
+    var s = toMin(v.start), e = toMin(v.end);
+    if (s == null || e == null || e <= s) return null;
+    return (e - s) / 60;
+  }
+  function extraOf(v) { return validNum(v.extra, 0); }
+  function billed(v) { var w = worked(v); return w == null ? null : w + extraOf(v); }
+  function rateOf(v) { return v.paid ? validNum(v.paidRate, state.settings.rate) : state.settings.rate; }
+  function amountOf(v) { var b = billed(v); return b == null ? null : b * rateOf(v); }
+  function dateParts(iso) {
+    var p = iso.split("-").map(Number);
+    var dt = new Date(p[0], p[1] - 1, p[2]);
+    return { y: p[0], m: p[1], d: p[2], wd: DAYS[dt.getDay()] };
+  }
+  function shortDate(iso) {
+    var p = dateParts(iso);
+    return p.d + "/" + p.m + (p.y !== new Date().getFullYear() ? " " + p.y : "");
+  }
+  function byNewest(a, b) { return (b.date + (b.start || "")).localeCompare(a.date + (a.start || "")); }
+  function gange(n) { return n === 1 ? "1 gang" : n + " gange"; }
+  function calcText(v) {
+    var w = worked(v);
+    if (w == null) return "";
+    var x = extraOf(v);
+    return x ? fmt(w) + " t + " + fmt(x) + " = " + fmt(w + x) + " t" : fmt(w) + " t";
+  }
+  var toastTimer = null;
+  function toast(msg) {
+    var t = $("toast");
+    t.textContent = msg;
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.hidden = true; }, 3000);
+  }
+
+  /* ---------- storage on this phone ---------- */
+  function cleanVisit(v) {
+    if (!v || typeof v !== "object" || !isDate(v.date) || !isTime(v.start)) return null;
+    var paid = v.paid === true;
+    return {
+      date: v.date,
+      start: v.start,
+      end: isTime(v.end) ? v.end : "",
+      extra: validNum(v.extra, 0),
+      paid: paid,
+      paidAt: paid && isDate(v.paidAt) ? v.paidAt : null,
+      paidRate: paid ? validNum(v.paidRate, null) : null,
+      batch: paid && typeof v.batch === "string" ? v.batch.slice(0, 64) : null,
+      createdAt: typeof v.createdAt === "string" ? v.createdAt.slice(0, 40) : new Date().toISOString()
+    };
+  }
+  function readBackup(obj) {
+    var out = { settings: null, visits: {} };
+    if (!obj || typeof obj !== "object") return out;
+    if (obj.settings && typeof obj.settings === "object") {
+      out.settings = { rate: validNum(obj.settings.rate, DEFAULTS.rate), extra: validNum(obj.settings.extra, DEFAULTS.extra) };
+    }
+    var list = obj.visits;
+    if (Array.isArray(list)) {
+      list.forEach(function (v, i) { var c = cleanVisit(v); if (c) out.visits[typeof v.id === "string" ? v.id.slice(0, 64) : "i" + i + c.date] = c; });
+    } else if (list && typeof list === "object") {
+      Object.keys(list).forEach(function (id) { var c = cleanVisit(list[id]); if (c) out.visits[id.slice(0, 64)] = c; });
+    }
+    return out;
+  }
+  function load() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (!raw) return;
+      var b = readBackup(JSON.parse(raw));
+      if (b.settings) state.settings = b.settings;
+      state.visits = b.visits;
+    } catch (e) { /* unreadable storage: start empty */ }
+  }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); }
+    catch (e) { toast("Kunne ikke gemme på telefonen. Er lageret fyldt?"); }
+  }
+  function visitList() {
+    return Object.keys(state.visits).map(function (id) { var o = Object.assign({}, state.visits[id]); o.id = id; return o; });
+  }
+  function newId() { return "v" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+  function commit() { save(); render(); }
+
+  // Adds the visits from a backup that are not on the phone yet. Visits already here are kept as they are.
+  function mergeBackup(b) {
+    var hadVisits = Object.keys(state.visits).length > 0;
+    var added = 0;
+    Object.keys(b.visits).forEach(function (id) {
+      if (!state.visits[id]) { state.visits[id] = b.visits[id]; added++; }
     });
+    if (b.settings && !hadVisits) state.settings = b.settings;
+    return added;
   }
-  return out;
-}
-function loadLocal() {
-  try {
-    var raw = localStorage.getItem(KEY);
-    if (!raw) return;
-    var obj = JSON.parse(raw);
-    var b = readBackup(obj);
-    if (b.settings) state.settings = b.settings;
-    state.visits = b.visits;
-    state.owner = obj && typeof obj.owner === "string" ? obj.owner : null;
-  } catch (e) { /* unreadable storage: start empty */ }
-}
-function saveLocal() {
-  try { localStorage.setItem(KEY, JSON.stringify(state)); }
-  catch (e) { toast("Kunne ikke gemme på telefonen. Er lageret fyldt?"); }
-}
-function visitList() {
-  return Object.keys(state.visits).map(function (id) { var o = Object.assign({}, state.visits[id]); o.id = id; return o; });
-}
-function newId() { return "v" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
-/* ---------- changes: on the phone right away, online when logged in ---------- */
-function cloudError(e) {
-  var code = e && e.code;
-  if (code === "permission-denied") toast("Kunne ikke gemme online. Log ud og ind igen.");
-  else toast("Kunne ikke gemme online. Prøv igen om lidt.");
-}
-function changed() { saveLocal(); render(); }
-function putVisits(map) {
-  Object.assign(state.visits, map);
-  changed();
-  if (cloud) cloud.putMany(map).catch(cloudError);
-}
-function patchVisits(ids, patch) {
-  ids.forEach(function (id) { if (state.visits[id]) state.visits[id] = Object.assign({}, state.visits[id], patch); });
-  changed();
-  if (cloud) cloud.patchMany(ids, patch).catch(cloudError);
-}
-function deleteVisit(id) {
-  delete state.visits[id];
-  changed();
-  if (cloud) cloud.remove(id).catch(cloudError);
-}
-function putSettings(s) {
-  state.settings = s;
-  saveLocal();
-  if (cloud) cloud.putSettings(s).catch(cloudError);
-}
-
-/* ---------- rendering ---------- */
-function visitItem(v) {
-  var li = el("li", "visit-li");
-  var b = el("button", "visit" + (v.id === editingId ? " editing" : ""));
-  b.type = "button";
-  var p = dateParts(v.date);
-  var d = el("span", "v-date");
-  d.append(el("span", "v-wd", p.wd), el("span", "v-dm", shortDate(v.date)));
-  var mid = el("span", "v-mid");
-  var w = worked(v);
-  mid.append(el("span", "v-time", v.start + " – " + (v.end || "…")));
-  if (w != null) mid.append(el("span", "v-calc", calcText(v)));
-  else if (v.end) mid.append(el("span", "pill warn", "Tjek tiderne"));
-  else mid.append(el("span", "pill warn", "I gang"));
-  b.append(d, mid, el("span", "v-amt", w != null ? fmt(amountOf(v)) + " kr" : ""));
-  b.addEventListener("click", function () { startEdit(v); });
-  li.append(b);
-  if (w == null && !v.end && !v.paid) {
-    var q = el("button", "quick", "Slut nu");
-    q.type = "button";
-    q.addEventListener("click", function () { finishNow(v); });
-    li.append(q);
+  /* ---------- rendering ---------- */
+  function visitItem(v) {
+    var li = el("li", "visit-li");
+    var b = el("button", "visit" + (v.id === editingId ? " editing" : ""));
+    b.type = "button";
+    var p = dateParts(v.date);
+    var d = el("span", "v-date");
+    d.append(el("span", "v-wd", p.wd), el("span", "v-dm", shortDate(v.date)));
+    var mid = el("span", "v-mid");
+    var w = worked(v);
+    mid.append(el("span", "v-time", v.start + " – " + (v.end || "…")));
+    if (w != null) mid.append(el("span", "v-calc", calcText(v)));
+    else if (v.end) mid.append(el("span", "pill warn", "Tjek tiderne"));
+    else mid.append(el("span", "pill warn", "I gang"));
+    b.append(d, mid, el("span", "v-amt", w != null ? fmt(amountOf(v)) + " kr" : ""));
+    b.addEventListener("click", function () { startEdit(v); });
+    li.append(b);
+    if (w == null && !v.end && !v.paid) {
+      var q = el("button", "quick", "Slut nu");
+      q.type = "button";
+      q.addEventListener("click", function () { finishNow(v); });
+      li.append(q);
+    }
+    return li;
   }
-  return li;
-}
 
-function batchItem(key, list) {
-  var det = el("details", "batch");
-  if (openBatches.has(key)) det.open = true;
-  det.addEventListener("toggle", function () { if (det.open) openBatches.add(key); else openBatches.delete(key); });
-  var dates = list.map(function (v) { return v.date; }).sort();
-  var range = dates[0] === dates[dates.length - 1] ? shortDate(dates[0]) : shortDate(dates[0]) + " – " + shortDate(dates[dates.length - 1]);
-  var hrs = 0, kr = 0;
-  list.forEach(function (v) { var b = billed(v); if (b != null) { hrs += b; kr += amountOf(v); } });
-  var sum = el("summary");
-  var top = el("span", "b-top");
-  top.append(el("span", "pill ok", "Betalt"), el("span", "b-range", range));
-  sum.append(top, el("span", "b-amt", fmt(kr) + " kr"), el("span", "b-sub", gange(list.length) + " · " + fmt(hrs) + " t"));
-  det.append(sum);
-  var ul = el("ul", "visits");
-  list.slice().sort(byNewest).forEach(function (v) { ul.append(visitItem(v)); });
-  det.append(ul);
-  var foot = el("div", "b-foot");
-  var undo = el("button", "linkbtn" + (undoArmed === key ? " armed" : ""), undoArmed === key ? "Tryk igen for at flytte tilbage" : "Flyt tilbage til ikke betalt");
-  undo.type = "button";
-  undo.addEventListener("click", function () { unpay(key, list); });
-  foot.append(undo);
-  det.append(foot);
-  return det;
-}
+  function batchItem(key, list) {
+    var det = el("details", "batch");
+    if (openBatches.has(key)) det.open = true;
+    det.addEventListener("toggle", function () { if (det.open) openBatches.add(key); else openBatches.delete(key); });
+    var dates = list.map(function (v) { return v.date; }).sort();
+    var range = dates[0] === dates[dates.length - 1] ? shortDate(dates[0]) : shortDate(dates[0]) + " – " + shortDate(dates[dates.length - 1]);
+    var hrs = 0, kr = 0;
+    list.forEach(function (v) { var b = billed(v); if (b != null) { hrs += b; kr += amountOf(v); } });
+    var sum = el("summary");
+    var top = el("span", "b-top");
+    top.append(el("span", "pill ok", "Betalt"), el("span", "b-range", range));
+    sum.append(top, el("span", "b-amt", fmt(kr) + " kr"), el("span", "b-sub", gange(list.length) + " · " + fmt(hrs) + " t"));
+    det.append(sum);
+    var ul = el("ul", "visits");
+    list.slice().sort(byNewest).forEach(function (v) { ul.append(visitItem(v)); });
+    det.append(ul);
+    var foot = el("div", "b-foot");
+    var undo = el("button", "linkbtn" + (undoArmed === key ? " armed" : ""), undoArmed === key ? "Tryk igen for at flytte tilbage" : "Flyt tilbage til ikke betalt");
+    undo.type = "button";
+    undo.addEventListener("click", function () { unpay(key, list); });
+    foot.append(undo);
+    det.append(foot);
+    return det;
+  }
 
-function render() {
-  var visits = visitList();
-  var rate = state.settings.rate;
-  var open = visits.filter(function (v) { return !v.paid; }).sort(byNewest);
-  var done = open.filter(function (v) { return billed(v) != null; });
-  var running = open.length - done.length;
-  var hrs = done.reduce(function (s, v) { return s + billed(v); }, 0);
-  var kr = hrs * rate;
+  function render() {
+    var visits = visitList();
+    var rate = state.settings.rate;
+    var open = visits.filter(function (v) { return !v.paid; }).sort(byNewest);
+    var done = open.filter(function (v) { return billed(v) != null; });
+    var running = open.length - done.length;
+    var hrs = done.reduce(function (s, v) { return s + billed(v); }, 0);
+    var kr = hrs * rate;
 
-  $("due-amount").textContent = fmt(kr);
-  $("due-calc").textContent = done.length ? fmt(hrs) + " t × " + fmt(rate) + " kr · " + gange(done.length) : "Ingen ubetalte timer";
-  var note = $("open-note");
-  note.hidden = !running;
-  note.textContent = running ? gange(running) + " mangler sluttid og tælles med, når den er udfyldt." : "";
-  if (!done.length) { payArmed = false; clearTimeout(payTimer); }
-  var pay = $("pay-btn");
-  pay.disabled = !done.length;
-  pay.classList.toggle("armed", payArmed);
-  pay.textContent = payArmed ? "Tryk igen: " + fmt(kr) + " kr er betalt" : "Marker som betalt";
+    $("due-amount").textContent = fmt(kr);
+    $("due-calc").textContent = done.length ? fmt(hrs) + " t × " + fmt(rate) + " kr · " + gange(done.length) : "Ingen ubetalte timer";
+    var note = $("open-note");
+    note.hidden = !running;
+    note.textContent = running ? gange(running) + " mangler sluttid og tælles med, når den er udfyldt." : "";
+    if (!done.length) { payArmed = false; clearTimeout(payTimer); }
+    var pay = $("pay-btn");
+    pay.disabled = !done.length;
+    pay.classList.toggle("armed", payArmed);
+    pay.textContent = payArmed ? "Tryk igen: " + fmt(kr) + " kr er betalt" : "Marker som betalt";
 
-  var ul = $("open-list");
-  ul.replaceChildren();
-  open.forEach(function (v) { ul.append(visitItem(v)); });
-  ul.hidden = !open.length;
-  var empty = $("open-empty");
-  empty.hidden = !!open.length;
-  empty.textContent = visits.length ? "Alt er betalt. Skriv næste gang i formularen ovenfor." : "Ingen timer endnu. Skriv den første gang i formularen ovenfor.";
-  $("open-count").textContent = open.length ? gange(open.length) : "";
+    var ul = $("open-list");
+    ul.replaceChildren();
+    open.forEach(function (v) { ul.append(visitItem(v)); });
+    ul.hidden = !open.length;
+    var empty = $("open-empty");
+    empty.hidden = !!open.length;
+    empty.textContent = visits.length ? "Alt er betalt. Skriv næste gang i formularen ovenfor." : "Ingen timer endnu. Skriv den første gang i formularen ovenfor.";
+    $("open-count").textContent = open.length ? gange(open.length) : "";
 
-  var groups = new Map();
-  visits.filter(function (v) { return v.paid; }).forEach(function (v) {
-    var key = v.batch || v.paidAt || "betalt";
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(v);
+    var groups = new Map();
+    visits.filter(function (v) { return v.paid; }).forEach(function (v) {
+      var key = v.batch || v.paidAt || "betalt";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(v);
+    });
+    var lastDate = function (k) { return groups.get(k).map(function (v) { return v.date; }).sort().pop(); };
+    var keys = Array.from(groups.keys()).sort(function (a, b) { return lastDate(b).localeCompare(lastDate(a)); });
+    var paidList = $("paid-list");
+    paidList.replaceChildren();
+    keys.forEach(function (k) { paidList.append(batchItem(k, groups.get(k))); });
+    $("paid-section").hidden = !keys.length;
+    var paidN = visits.length - open.length;
+    $("paid-count").textContent = paidN ? gange(paidN) : "";
+
+    if (editingId && !state.visits[editingId]) resetForm();
+    updatePreview();
+  }
+
+  /* ---------- rates ---------- */
+  function syncSettingsInputs() {
+    var r = $("rate"), x = $("extra-default");
+    if (document.activeElement !== r) { r.value = plain(state.settings.rate); r.removeAttribute("aria-invalid"); }
+    if (document.activeElement !== x) { x.value = plain(state.settings.extra); x.removeAttribute("aria-invalid"); }
+  }
+  var settingsTimer = null;
+  function onSettingsInput() {
+    var r = $("rate"), x = $("extra-default");
+    var rate = parseNum(r.value), extra = parseNum(x.value);
+    var okR = Number.isFinite(rate) && rate >= 0, okX = Number.isFinite(extra) && extra >= 0 && extra <= 24;
+    r.setAttribute("aria-invalid", String(!okR));
+    x.setAttribute("aria-invalid", String(!okX));
+    if (!okR || !okX) return;
+    var prevExtra = state.settings.extra;
+    state.settings = { rate: rate, extra: extra };
+    if (!editingId && parseNum($("f-extra").value) === prevExtra) $("f-extra").value = plain(extra);
+    render();
+    clearTimeout(settingsTimer);
+    settingsTimer = setTimeout(save, 400);
+  }
+  ["rate", "extra-default"].forEach(function (id) {
+    $(id).addEventListener("input", onSettingsInput);
+    $(id).addEventListener("blur", function () { clearTimeout(settingsTimer); save(); setTimeout(syncSettingsInputs, 0); });
   });
-  var lastDate = function (k) { return groups.get(k).map(function (v) { return v.date; }).sort().pop(); };
-  var keys = Array.from(groups.keys()).sort(function (a, b) { return lastDate(b).localeCompare(lastDate(a)); });
-  var paidList = $("paid-list");
-  paidList.replaceChildren();
-  keys.forEach(function (k) { paidList.append(batchItem(k, groups.get(k))); });
-  $("paid-section").hidden = !keys.length;
-  var paidN = visits.length - open.length;
-  $("paid-count").textContent = paidN ? gange(paidN) : "";
 
-  if (editingId && !state.visits[editingId]) resetForm();
-  updatePreview();
-}
-
-/* ---------- rates ---------- */
-function syncSettingsInputs() {
-  var r = $("rate"), x = $("extra-default");
-  if (document.activeElement !== r) { r.value = plain(state.settings.rate); r.removeAttribute("aria-invalid"); }
-  if (document.activeElement !== x) { x.value = plain(state.settings.extra); x.removeAttribute("aria-invalid"); }
-}
-var settingsTimer = null, settingsDirty = false;
-function flushSettings() {
-  clearTimeout(settingsTimer);
-  if (!settingsDirty) return;
-  settingsDirty = false;
-  putSettings({ rate: state.settings.rate, extra: state.settings.extra });
-}
-function onSettingsInput() {
-  var r = $("rate"), x = $("extra-default");
-  var rate = parseNum(r.value), extra = parseNum(x.value);
-  var okR = Number.isFinite(rate) && rate >= 0, okX = Number.isFinite(extra) && extra >= 0 && extra <= 24;
-  r.setAttribute("aria-invalid", String(!okR));
-  x.setAttribute("aria-invalid", String(!okX));
-  if (!okR || !okX) return;
-  var prevExtra = state.settings.extra;
-  state.settings = { rate: rate, extra: extra };
-  if (!editingId && parseNum($("f-extra").value) === prevExtra) $("f-extra").value = plain(extra);
-  settingsDirty = true;
-  render();
-  clearTimeout(settingsTimer);
-  settingsTimer = setTimeout(flushSettings, 800);
-}
-["rate", "extra-default"].forEach(function (id) {
-  $(id).addEventListener("input", onSettingsInput);
-  $(id).addEventListener("blur", function () { flushSettings(); setTimeout(syncSettingsInputs, 0); });
-});
-
-/* ---------- form ---------- */
-function readForm() {
-  var xs = $("f-extra").value;
-  return { date: $("f-date").value, start: $("f-start").value, end: $("f-end").value, extra: xs.trim() === "" ? 0 : parseNum(xs) };
-}
-function validate(f) {
-  if (!isDate(f.date)) return "Vælg en dato.";
-  if (!isTime(f.start)) return "Skriv hvornår rengøringen startede under Kom.";
-  if (!Number.isFinite(f.extra) || f.extra < 0) return "Ekstra skal være et tal, fx 1 eller 0,5.";
-  if (f.end && toMin(f.end) <= toMin(f.start)) return "Gik skal være senere end Kom.";
-  return null;
-}
-function showError(msg) { var e = $("f-error"); e.textContent = msg || ""; e.hidden = !msg; }
-function updatePreview() {
-  var f = readForm(), p = $("f-preview");
-  if (!f.start) { p.textContent = ""; return; }
-  if (!f.end) { p.textContent = "Uden Gik gemmes den som i gang. Du kan tilføje sluttid senere."; return; }
-  var s = toMin(f.start), e = toMin(f.end);
-  if (s == null || e == null || e <= s || !Number.isFinite(f.extra) || f.extra < 0) { p.textContent = ""; return; }
-  var w = (e - s) / 60, total = w + f.extra;
-  var editing = editingId && state.visits[editingId];
-  var rate = editing ? rateOf(editing) : state.settings.rate;
-  p.textContent = (f.extra ? fmt(w) + " t + " + fmt(f.extra) + " = " + fmt(total) + " t" : fmt(w) + " t") + "  ·  " + fmt(total * rate) + " kr";
-}
-function resetForm() {
-  editingId = null;
-  $("f-date").value = todayISO();
-  $("f-start").value = "";
-  $("f-end").value = "";
-  $("f-extra").value = plain(state.settings.extra);
-  $("form-title").textContent = "Ny gang";
-  $("f-submit").textContent = "Tilføj";
-  $("f-cancel").hidden = true;
-  $("f-delete").hidden = true;
-  disarmDelete();
-  showError("");
-  updatePreview();
-}
-function startEdit(v) {
-  editingId = v.id;
-  $("f-date").value = v.date;
-  $("f-start").value = v.start || "";
-  $("f-end").value = v.end || "";
-  $("f-extra").value = plain(extraOf(v));
-  $("form-title").textContent = "Ret gang " + dateParts(v.date).wd + " " + shortDate(v.date);
-  $("f-submit").textContent = "Gem";
-  $("f-cancel").hidden = false;
-  $("f-delete").hidden = false;
-  disarmDelete();
-  showError("");
-  render();
-  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  $("visit-form").closest(".card").scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
-}
-
-["f-date", "f-start", "f-end", "f-extra"].forEach(function (id) {
-  $(id).addEventListener("input", function () { showError(""); updatePreview(); });
-  $(id).addEventListener("change", updatePreview);
-});
-document.querySelectorAll("[data-now]").forEach(function (btn) {
-  btn.addEventListener("click", function () {
-    $(btn.getAttribute("data-now")).value = nowHM();
-    if (!$("f-date").value) $("f-date").value = todayISO();
+  /* ---------- form ---------- */
+  function readForm() {
+    var xs = $("f-extra").value;
+    return { date: $("f-date").value, start: $("f-start").value, end: $("f-end").value, extra: xs.trim() === "" ? 0 : parseNum(xs) };
+  }
+  function validate(f) {
+    if (!isDate(f.date)) return "Vælg en dato.";
+    if (!isTime(f.start)) return "Skriv hvornår rengøringen startede under Kom.";
+    if (!Number.isFinite(f.extra) || f.extra < 0) return "Ekstra skal være et tal, fx 1 eller 0,5.";
+    if (f.end && toMin(f.end) <= toMin(f.start)) return "Gik skal være senere end Kom.";
+    return null;
+  }
+  function showError(msg) { var e = $("f-error"); e.textContent = msg || ""; e.hidden = !msg; }
+  function updatePreview() {
+    var f = readForm(), p = $("f-preview");
+    if (!f.start) { p.textContent = ""; return; }
+    if (!f.end) { p.textContent = "Uden Gik gemmes den som i gang. Du kan tilføje sluttid senere."; return; }
+    var s = toMin(f.start), e = toMin(f.end);
+    if (s == null || e == null || e <= s || !Number.isFinite(f.extra) || f.extra < 0) { p.textContent = ""; return; }
+    var w = (e - s) / 60, total = w + f.extra;
+    var editing = editingId && state.visits[editingId];
+    var rate = editing ? rateOf(editing) : state.settings.rate;
+    p.textContent = (f.extra ? fmt(w) + " t + " + fmt(f.extra) + " = " + fmt(total) + " t" : fmt(w) + " t") + "  ·  " + fmt(total * rate) + " kr";
+  }
+  function resetForm() {
+    editingId = null;
+    $("f-date").value = todayISO();
+    $("f-start").value = "";
+    $("f-end").value = "";
+    $("f-extra").value = plain(state.settings.extra);
+    $("form-title").textContent = "Ny gang";
+    $("f-submit").textContent = "Tilføj";
+    $("f-cancel").hidden = true;
+    $("f-delete").hidden = true;
+    disarmDelete();
     showError("");
     updatePreview();
+  }
+  function startEdit(v) {
+    editingId = v.id;
+    $("f-date").value = v.date;
+    $("f-start").value = v.start || "";
+    $("f-end").value = v.end || "";
+    $("f-extra").value = plain(extraOf(v));
+    $("form-title").textContent = "Ret gang " + dateParts(v.date).wd + " " + shortDate(v.date);
+    $("f-submit").textContent = "Gem";
+    $("f-cancel").hidden = false;
+    $("f-delete").hidden = false;
+    disarmDelete();
+    showError("");
+    render();
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    $("visit-form").closest(".card").scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+  }
+
+  ["f-date", "f-start", "f-end", "f-extra"].forEach(function (id) {
+    $(id).addEventListener("input", function () { showError(""); updatePreview(); });
+    $(id).addEventListener("change", updatePreview);
   });
-});
+  document.querySelectorAll("[data-now]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      $(btn.getAttribute("data-now")).value = nowHM();
+      if (!$("f-date").value) $("f-date").value = todayISO();
+      showError("");
+      updatePreview();
+    });
+  });
 
-$("visit-form").addEventListener("submit", function (ev) {
-  ev.preventDefault();
-  var f = readForm(), err = validate(f);
-  if (err) { showError(err); return; }
-  var data = { date: f.date, start: f.start, end: f.end || "", extra: f.extra };
-  var map = {};
-  if (editingId && state.visits[editingId]) {
-    map[editingId] = Object.assign({}, state.visits[editingId], data);
-    toast("Ændringer gemt");
-  } else {
-    map[newId()] = Object.assign(data, { paid: false, paidAt: null, paidRate: null, batch: null, createdAt: new Date().toISOString() });
-    toast(data.end ? "Tilføjet" : "Tilføjet som i gang");
-  }
-  resetForm();
-  putVisits(map);
-});
-$("f-cancel").addEventListener("click", function () { resetForm(); render(); });
-
-function disarmDelete() {
-  delArmed = false; clearTimeout(delTimer);
-  var d = $("f-delete"); d.classList.remove("armed"); d.textContent = "Slet";
-}
-$("f-delete").addEventListener("click", function () {
-  if (!editingId) return;
-  if (!delArmed) {
-    delArmed = true;
-    var d = $("f-delete"); d.classList.add("armed"); d.textContent = "Tryk igen for at slette";
-    delTimer = setTimeout(disarmDelete, 4000);
-    return;
-  }
-  var id = editingId;
-  resetForm();
-  deleteVisit(id);
-  toast("Slettet");
-});
-
-function finishNow(v) {
-  var end = nowHM();
-  if (v.date !== todayISO() || toMin(end) <= toMin(v.start)) { startEdit(v); $("f-end").focus(); return; }
-  patchVisits([v.id], { end: end });
-  toast("Sluttid " + end + " gemt");
-}
-
-/* ---------- payments ---------- */
-$("pay-btn").addEventListener("click", function () {
-  var targets = visitList().filter(function (v) { return !v.paid && billed(v) != null; });
-  if (!targets.length) return;
-  if (!payArmed) {
-    payArmed = true;
-    payTimer = setTimeout(function () { payArmed = false; render(); }, 5000);
-    render();
-    return;
-  }
-  payArmed = false; clearTimeout(payTimer);
-  var rate = state.settings.rate;
-  var total = targets.reduce(function (s, v) { return s + billed(v); }, 0) * rate;
-  patchVisits(targets.map(function (v) { return v.id; }), { paid: true, paidAt: todayISO(), paidRate: rate, batch: "b" + Date.now() });
-  toast(fmt(total) + " kr markeret som betalt");
-});
-
-function unpay(key, list) {
-  if (undoArmed !== key) {
-    undoArmed = key;
-    clearTimeout(undoTimer);
-    undoTimer = setTimeout(function () { undoArmed = null; render(); }, 4000);
-    render();
-    return;
-  }
-  undoArmed = null; clearTimeout(undoTimer);
-  openBatches.delete(key);
-  patchVisits(list.map(function (v) { return v.id; }), { paid: false, paidAt: null, paidRate: null, batch: null });
-  toast("Flyttet tilbage til ikke betalt");
-}
-
-/* ---------- backup ---------- */
-function backupText() {
-  return JSON.stringify({ app: "rengoring", v: 1, settings: state.settings, visits: state.visits });
-}
-function openImport(open) {
-  $("import-box").hidden = !open;
-  $("import-toggle").setAttribute("aria-expanded", String(open));
-}
-$("export-btn").addEventListener("click", function () {
-  var text = backupText();
-  var fallback = function () {
-    openImport(true);
-    var t = $("import-text");
-    t.value = text;
-    t.focus();
-    t.select();
-    toast("Markér teksten og kopiér den");
-  };
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(function () { toast("Kopieret. Sæt den ind i fx Noter."); }, fallback);
-  } else fallback();
-});
-$("import-toggle").addEventListener("click", function () {
-  var open = $("import-box").hidden;
-  openImport(open);
-  if (open) { $("import-text").value = ""; $("import-error").hidden = true; $("import-text").focus(); }
-});
-$("import-btn").addEventListener("click", function () {
-  var err = $("import-error");
-  var b;
-  try { b = readBackup(JSON.parse($("import-text").value.trim())); }
-  catch (e) { b = null; }
-  var n = b ? Object.keys(b.visits).length : 0;
-  if (!n) {
-    err.textContent = "Teksten kunne ikke læses som en sikkerhedskopi. Kopiér hele teksten og prøv igen.";
-    err.hidden = false;
-    return;
-  }
-  err.hidden = true;
-  $("import-text").value = "";
-  openImport(false);
-  if (b.settings) putSettings(b.settings);
-  syncSettingsInputs();
-  resetForm();
-  putVisits(b.visits);
-  toast(gange(n) + " indlæst");
-  window.scrollTo({ top: 0 });
-});
-
-/* ---------- online storage (Firebase) ---------- */
-var fb = null;
-var listeners = [];
-
-function authMessage(e) {
-  var code = (e && e.code) || "";
-  if (code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found" || code === "auth/invalid-login-credentials") return "Forkert e-mail eller adgangskode. Har du ikke en konto endnu, så tryk Opret konto.";
-  if (code === "auth/email-already-in-use") return "Der findes allerede en konto med den e-mail. Tryk Log ind.";
-  if (code === "auth/weak-password") return "Adgangskoden skal være mindst 6 tegn.";
-  if (code === "auth/invalid-email" || code === "auth/missing-email") return "E-mailadressen ser forkert ud.";
-  if (code === "auth/missing-password") return "Skriv din adgangskode.";
-  if (code === "auth/network-request-failed") return "Ingen forbindelse. Prøv igen, når du er online.";
-  if (code === "auth/too-many-requests") return "For mange forsøg. Vent lidt og prøv igen.";
-  if (code === "auth/operation-not-allowed") return "Login med e-mail er ikke slået til i Firebase endnu.";
-  if (code.indexOf("api-key") !== -1) return "Appens Firebase-indstillinger passer ikke. Tjek firebase-config.js.";
-  return "Det lykkedes ikke. Prøv igen om lidt.";
-}
-function authError(msg) { var e = $("a-error"); e.textContent = msg || ""; e.hidden = !msg; }
-function authBusy(busy) { ["a-login", "a-signup", "a-reset"].forEach(function (id) { $(id).disabled = busy; }); }
-function authInputs() {
-  var email = $("a-email").value.trim(), pass = $("a-pass").value;
-  if (!email) { authError("Skriv din e-mail."); return null; }
-  if (!pass) { authError("Skriv din adgangskode."); return null; }
-  return { email: email, pass: pass };
-}
-function runAuth(fn) {
-  var c = authInputs();
-  if (!c) return;
-  authError("");
-  authBusy(true);
-  fn(fb.auth, c.email, c.pass)
-    .then(function () { $("a-pass").value = ""; })
-    .catch(function (e) { authError(authMessage(e)); })
-    .then(function () { authBusy(false); });
-}
-$("auth-form").addEventListener("submit", function (ev) { ev.preventDefault(); if (fb) runAuth(fb.F.signInWithEmailAndPassword); });
-$("a-signup").addEventListener("click", function () { if (fb) runAuth(fb.F.createUserWithEmailAndPassword); });
-$("a-reset").addEventListener("click", function () {
-  if (!fb) return;
-  var email = $("a-email").value.trim();
-  if (!email) { authError("Skriv din e-mail først, så sender vi et link til en ny adgangskode."); return; }
-  authError("");
-  fb.F.sendPasswordResetEmail(fb.auth, email)
-    .then(function () { toast("Tjek din mail for et link til ny adgangskode."); })
-    .catch(function (e) { authError(authMessage(e)); });
-});
-$("logout-btn").addEventListener("click", function () { if (fb) fb.F.signOut(fb.auth).then(function () { toast("Logget ud"); }); });
-
-function stopListeners() { listeners.forEach(function (u) { u(); }); listeners = []; }
-
-function startCloud(user) {
-  stopListeners();
-  var FS = fb.FS, db = fb.db, uid = user.uid;
-  var col = FS.collection(db, "users", uid, "visits");
-  var sdoc = FS.doc(db, "users", uid, "settings", "main");
-  // Hours that so far were only on this phone are copied up on the first online answer.
-  var pending = state.owner === null ? { visits: Object.assign({}, state.visits), settings: state.settings } : null;
-  if (state.owner && state.owner !== uid) { state.visits = {}; state.settings = { rate: DEFAULTS.rate, extra: DEFAULTS.extra }; }
-  state.owner = uid;
-  saveLocal();
-
-  function batches(ops) {
-    var jobs = [];
-    for (var i = 0; i < ops.length; i += 400) {
-      var b = FS.writeBatch(db);
-      ops.slice(i, i + 400).forEach(function (op) { op(b); });
-      jobs.push(b.commit());
+  $("visit-form").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var f = readForm(), err = validate(f);
+    if (err) { showError(err); return; }
+    var data = { date: f.date, start: f.start, end: f.end || "", extra: f.extra };
+    if (editingId && state.visits[editingId]) {
+      state.visits[editingId] = Object.assign({}, state.visits[editingId], data);
+      toast("Gemt");
+    } else {
+      state.visits[newId()] = Object.assign(data, { paid: false, paidAt: null, paidRate: null, batch: null, createdAt: new Date().toISOString() });
+      toast(data.end ? "Gemt" : "Gemt som i gang");
     }
-    return Promise.all(jobs);
+    resetForm();
+    commit();
+  });
+  $("f-cancel").addEventListener("click", function () { resetForm(); render(); });
+
+  function disarmDelete() {
+    delArmed = false; clearTimeout(delTimer);
+    var d = $("f-delete"); d.classList.remove("armed"); d.textContent = "Slet";
   }
-  cloud = {
-    putMany: function (map) {
-      return batches(Object.keys(map).map(function (id) { return function (b) { b.set(FS.doc(col, id), map[id]); }; }));
-    },
-    patchMany: function (ids, patch) {
-      return batches(ids.map(function (id) { return function (b) { b.update(FS.doc(col, id), patch); }; }));
-    },
-    remove: function (id) { return FS.deleteDoc(FS.doc(col, id)); },
-    putSettings: function (s) { return FS.setDoc(sdoc, s); }
-  };
-
-  $("auth-card").hidden = true;
-  $("account-section").hidden = false;
-  $("account-email").textContent = user.email || "";
-  $("backup-hint").textContent = "Dine timer gemmes online. En sikkerhedskopi er en ekstra kopi, du selv kan gemme, fx i Noter.";
-  setStatus("Henter…");
-
-  var gotServer = false;
-  listeners.push(FS.onSnapshot(col, { includeMetadataChanges: true }, function (snap) {
-    if (pending && !gotServer) {
-      if (snap.metadata.fromCache) return; // keep showing the phone's hours until the online answer
-      gotServer = true;
-      var online = {};
-      snap.forEach(function (d) { online[d.id] = true; });
-      var up = {};
-      Object.keys(pending.visits).forEach(function (id) { if (!online[id]) up[id] = pending.visits[id]; });
-      pending = null;
-      if (Object.keys(up).length) {
-        cloud.putMany(up).then(function () { toast(gange(Object.keys(up).length) + " gemt online"); }, cloudError);
-        return; // the write triggers a new snapshot with everything
-      }
+  $("f-delete").addEventListener("click", function () {
+    if (!editingId) return;
+    if (!delArmed) {
+      delArmed = true;
+      var d = $("f-delete"); d.classList.add("armed"); d.textContent = "Tryk igen for at slette";
+      delTimer = setTimeout(disarmDelete, 4000);
+      return;
     }
-    var v = {};
-    snap.forEach(function (d) { var c = cleanVisit(d.data()); if (c) v[d.id] = c; });
-    state.visits = v;
-    saveLocal();
-    render();
-    if (snap.metadata.hasPendingWrites) setStatus("Gemmer…");
-    else if (snap.metadata.fromCache) setStatus("Offline · gemmes senere", "warn");
-    else setStatus("Gemt online", "ok");
-  }, function () { setStatus("Kunne ikke hente timerne", "warn"); }));
+    delete state.visits[editingId];
+    resetForm();
+    commit();
+    toast("Slettet");
+  });
 
-  var settingsPending = state.settings;
-  var firstSettings = true;
-  listeners.push(FS.onSnapshot(sdoc, function (snap) {
-    if (snap.exists()) {
-      var s = cleanSettings(snap.data());
-      if (s && !settingsDirty) { state.settings = s; saveLocal(); syncSettingsInputs(); render(); }
-    } else if (firstSettings && !snap.metadata.fromCache) {
-      FS.setDoc(sdoc, { rate: settingsPending.rate, extra: settingsPending.extra }).catch(cloudError);
+  function finishNow(v) {
+    var end = nowHM();
+    if (v.date !== todayISO() || toMin(end) <= toMin(v.start)) { startEdit(v); $("f-end").focus(); return; }
+    state.visits[v.id] = Object.assign({}, state.visits[v.id], { end: end });
+    commit();
+    toast("Sluttid " + end + " gemt");
+  }
+
+  /* ---------- payments ---------- */
+  $("pay-btn").addEventListener("click", function () {
+    var targets = visitList().filter(function (v) { return !v.paid && billed(v) != null; });
+    if (!targets.length) return;
+    if (!payArmed) {
+      payArmed = true;
+      payTimer = setTimeout(function () { payArmed = false; render(); }, 5000);
+      render();
+      return;
     }
-    if (!snap.metadata.fromCache) firstSettings = false;
-  }, function () {}));
-}
+    payArmed = false; clearTimeout(payTimer);
+    var rate = state.settings.rate;
+    var total = targets.reduce(function (s, v) { return s + billed(v); }, 0) * rate;
+    var patch = { paid: true, paidAt: todayISO(), paidRate: rate, batch: "b" + Date.now() };
+    targets.forEach(function (v) { state.visits[v.id] = Object.assign({}, state.visits[v.id], patch); });
+    commit();
+    toast(fmt(total) + " kr markeret som betalt");
+  });
 
-function stopCloud() {
-  stopListeners();
-  cloud = null;
-  if (state.owner) {
-    // Logged out: the online hours stay online, this phone forgets its copy.
-    state = { settings: { rate: DEFAULTS.rate, extra: DEFAULTS.extra }, visits: {}, owner: null };
-    saveLocal();
+  function unpay(key, list) {
+    if (undoArmed !== key) {
+      undoArmed = key;
+      clearTimeout(undoTimer);
+      undoTimer = setTimeout(function () { undoArmed = null; render(); }, 4000);
+      render();
+      return;
+    }
+    undoArmed = null; clearTimeout(undoTimer);
+    openBatches.delete(key);
+    list.forEach(function (v) {
+      if (state.visits[v.id]) state.visits[v.id] = Object.assign({}, state.visits[v.id], { paid: false, paidAt: null, paidRate: null, batch: null });
+    });
+    commit();
+    toast("Flyttet tilbage til ikke betalt");
+  }
+
+  /* ---------- backup ---------- */
+  function backupText() {
+    return JSON.stringify({ app: "rengoring", v: 1, settings: state.settings, visits: state.visits });
+  }
+  function openImport(open) {
+    $("import-box").hidden = !open;
+    $("import-toggle").setAttribute("aria-expanded", String(open));
+  }
+  function afterImport(b) {
+    var total = Object.keys(b.visits).length;
+    var added = mergeBackup(b);
     syncSettingsInputs();
     resetForm();
-    render();
+    commit();
+    toast(added ? gange(added) + " lagt ind" : "Timerne var der allerede");
+    window.scrollTo({ top: 0 });
+    return total;
   }
-  $("auth-card").hidden = false;
-  $("account-section").hidden = true;
-  $("backup-hint").textContent = "Timerne gemmes på denne telefon. Kopiér en sikkerhedskopi en gang imellem og gem den fx i Noter, så du kan hente timerne igen, hvis du får ny telefon.";
-  setStatus("Kun på telefonen");
-}
+  $("export-btn").addEventListener("click", function () {
+    var text = backupText();
+    var fallback = function () {
+      openImport(true);
+      var t = $("import-text");
+      t.value = text;
+      t.focus();
+      t.select();
+      toast("Markér teksten og kopiér den");
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast("Kopieret. Sæt den ind i fx Noter."); }, fallback);
+    } else fallback();
+  });
+  $("import-toggle").addEventListener("click", function () {
+    var open = $("import-box").hidden;
+    openImport(open);
+    if (open) { $("import-text").value = ""; $("import-error").hidden = true; $("import-text").focus(); }
+  });
+  $("import-btn").addEventListener("click", function () {
+    var err = $("import-error");
+    var b;
+    try { b = readBackup(JSON.parse($("import-text").value.trim())); }
+    catch (e) { b = null; }
+    if (!b || !Object.keys(b.visits).length) {
+      err.textContent = "Teksten kunne ikke læses som en sikkerhedskopi. Kopiér hele teksten og prøv igen.";
+      err.hidden = false;
+      return;
+    }
+    err.hidden = true;
+    $("import-text").value = "";
+    openImport(false);
+    afterImport(b);
+  });
 
-async function initCloud() {
-  var cfg = null;
-  try { cfg = (await import("./firebase-config.js")).firebaseConfig; } catch (e) { cfg = null; }
-  if (!cfg || !cfg.apiKey) { setStatus("Gemt på telefonen"); return; }
-  try {
-    var mods = await Promise.all([
-      import("./vendor/firebase/firebase-app.js"),
-      import("./vendor/firebase/firebase-auth.js"),
-      import("./vendor/firebase/firebase-firestore.js")
-    ]);
-    var A = mods[0], F = mods[1], FS = mods[2];
-    var app = A.initializeApp(cfg);
-    var auth = F.initializeAuth(app, { persistence: [F.indexedDBLocalPersistence, F.browserLocalPersistence] });
-    var db;
-    try { db = FS.initializeFirestore(app, { localCache: FS.persistentLocalCache({ tabManager: FS.persistentMultipleTabManager() }) }); }
-    catch (e) { db = FS.getFirestore(app); }
-    fb = { F: F, FS: FS, auth: auth, db: db };
-  } catch (e) {
-    setStatus("Kun på telefonen", "warn");
-    return;
+  // A link ending in #import=... carries a compressed backup, so the hours can be added with one tap.
+  function importFromLink() {
+    var m = /^#import=([A-Za-z0-9_-]+)$/.exec(location.hash);
+    if (!m) return;
+    try { history.replaceState(null, "", location.pathname + location.search); } catch (e) { location.hash = ""; }
+    if (typeof DecompressionStream !== "function") {
+      toast("Linket virker ikke i denne browser. Brug Indlæs med teksten i stedet.");
+      return;
+    }
+    var s = m[1].replace(/-/g, "+").replace(/_/g, "/");
+    while (s.length % 4) s += "=";
+    var bin, bytes;
+    try {
+      bin = atob(s);
+      bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    } catch (e) { toast("Linket er ikke helt. Kopiér hele linket og prøv igen."); return; }
+    var stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+    new Response(stream).text()
+      .then(function (text) {
+        var b = readBackup(JSON.parse(text));
+        if (!Object.keys(b.visits).length) throw new Error("empty");
+        afterImport(b);
+      })
+      .catch(function () { toast("Linket er ikke helt. Kopiér hele linket og prøv igen."); });
   }
-  if (!state.owner) setStatus("Kun på telefonen");
-  fb.F.onAuthStateChanged(fb.auth, function (user) { if (user) startCloud(user); else stopCloud(); });
-}
 
-/* ---------- start ---------- */
-$("today").textContent = new Date().toLocaleDateString("da-DK", { weekday: "long", day: "numeric", month: "long" });
-loadLocal();
-syncSettingsInputs();
-resetForm();
-render();
-window.addEventListener("storage", function (e) { if (e.key === KEY && !cloud) { loadLocal(); syncSettingsInputs(); render(); } });
-initCloud();
+  /* ---------- start ---------- */
+  $("today").textContent = new Date().toLocaleDateString("da-DK", { weekday: "long", day: "numeric", month: "long" });
+  load();
+  syncSettingsInputs();
+  resetForm();
+  render();
+  importFromLink();
+  window.addEventListener("hashchange", importFromLink);
+  window.addEventListener("storage", function (e) { if (e.key === KEY) { load(); syncSettingsInputs(); render(); } });
 
-if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {});
-if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
-  navigator.serviceWorker.register("sw.js").catch(function () {});
-}
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {});
+  if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+    navigator.serviceWorker.register("sw.js").catch(function () {});
+  }
+})();
 </script>
 </body>
 </html>

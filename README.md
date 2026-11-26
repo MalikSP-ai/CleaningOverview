@@ -8,18 +8,18 @@ Appen ligger på https://maliksp-ai.github.io/CleaningOverview/
 - `index.html` er selve appen (HTML, CSS og JavaScript i én fil).
 - `manifest.webmanifest` og `icons/` giver appen navn og ikon på hjemmeskærmen.
 - `sw.js` gemmer appen på telefonen, så den også virker uden internet.
-- `firebase-config.js` har Firebase-indstillingerne. Er værdien `null`, gemmes timerne kun på telefonen.
-- `firestore.rules` er reglerne for databasen: hver bruger kan kun se og ændre sine egne timer.
-- `vendor/firebase/` er Firebase JavaScript SDK 10.12.2 (Apache-2.0), lagt ind så appen ikke henter kode fra andre sider.
 
 ## Hvor gemmes timerne
 
-- Uden login: kun på telefonen (localStorage).
-- Logget ind: online i Firebase Firestore under `users/<bruger-id>/`, med en kopi på telefonen,
-  så appen også virker offline. Ændringer sendes, når telefonen er online igen.
-- Første gang man logger ind, bliver de timer, der kun lå på telefonen, gemt online.
+Timerne gemmes automatisk på telefonen (localStorage), hver gang man tilføjer eller retter noget.
+De bliver liggende, indtil appen slettes, eller browserens data ryddes.
 
-Under "Sikkerhedskopi" i appen kan du kopiere alle timer som tekst og indlæse dem igen.
+Under "Sikkerhedskopi" kan man kopiere alle timer som tekst og indlæse dem igen, fx på en ny telefon.
+Indlæsning lægger kun de gange ind, der ikke allerede findes, så intet bliver dobbelt eller overskrevet.
+
+Et link, der slutter med `#import=<data>`, indlæser en sikkerhedskopi med ét tryk. `<data>` er
+sikkerhedskopiens JSON, komprimeret med raw deflate og kodet som base64url. Data i `#` sendes ikke
+til serveren, og appen fjerner dem fra adressen, så snart de er indlæst.
 
 ## Sådan regner den
 
@@ -31,5 +31,5 @@ gemmes den timepris, der gjaldt på det tidspunkt, sammen med de betalte gange.
 
 ## Opdateringer
 
-Når du ændrer appens filer, skal du også ændre `CACHE` i `sw.js` (fx `rengoring-v3`),
+Når du ændrer appens filer, skal du også ændre `CACHE` i `sw.js` (fx `rengoring-v4`),
 så telefonerne henter den nye version.
