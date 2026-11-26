@@ -1,10 +1,15 @@
 # CleaningOverview
 
-Rengøringstimer: en lille app til at holde styr på rengøringstimer og hvad der skal betales.
+Rengøring: en lille web-app til iPhone, der holder styr på rengøringstimer og hvad der skal betales.
 
-- `rengoringstimer.html` er hele appen (HTML, CSS og JavaScript i én fil).
-- Den er udgivet som en Claude-artifact, hvor timerne gemmes i artifactens database.
-- Åbnes filen et andet sted, gemmes timerne i browserens localStorage i stedet.
+## Filer
+
+- `index.html` er selve appen (HTML, CSS og JavaScript i én fil).
+- `manifest.webmanifest` og `icons/` giver appen navn og ikon på hjemmeskærmen.
+- `sw.js` gemmer appen på telefonen, så den også virker uden internet.
+
+Timerne gemmes på telefonen (localStorage). Under "Sikkerhedskopi" i appen kan du kopiere
+alle timer som tekst og indlæse dem igen, fx på en ny telefon.
 
 ## Sådan regner den
 
@@ -13,3 +18,11 @@ Til betaling = summen af ubetalte timer × timeprisen.
 
 Timeprisen gælder alt, der ikke er betalt endnu. Når man trykker "Marker som betalt",
 gemmes den timepris, der gjaldt på det tidspunkt, sammen med de betalte gange.
+
+## Udgiv med GitHub Pages
+
+Settings → Pages → Source: "Deploy from a branch" → vælg branchen og mappen `/ (root)`.
+Appen ligger derefter på `https://<brugernavn>.github.io/CleaningOverview/`.
+
+Når du ændrer appens filer, skal du også ændre `CACHE` i `sw.js` (fx `rengoring-v2`),
+så telefonerne henter den nye version.
